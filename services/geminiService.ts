@@ -1,5 +1,5 @@
 
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, ThinkingLevel, Modality } from "@google/genai";
 import { InteractionMode } from "../types";
 
 const SYSTEM_INSTRUCTION = `
@@ -31,25 +31,100 @@ export const getGeminiResponse = async (
   pdf: { base64: string; mimeType: string } | null,
   mode: InteractionMode,
   image?: { base64: string; mimeType: string }
-): Promise<{ text: string; generatedImage?: string }> => {
+): Promise<{ text: string; generatedImage?: string; generatedVideo?: string }> => {
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
     
     if (mode === InteractionMode.VISUALIZE) {
-      const imgResponse = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
-        contents: [{ parts: [{ text: `صورة تعليمية بسيطة وواضحة جداً لـ: ${prompt}.` }] }]
-      });
-      
-      let base64Img = "";
-      for (const part of imgResponse.candidates[0].content.parts) {
-        if (part.inlineData) base64Img = `data:image/png;base64,${part.inlineData.data}`;
+      try {
+        const openRouterKey = process.env.OPENROUTER_API_KEY || "";
+        if (!openRouterKey) throw new Error("OpenRouter API Key is missing");
+        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${openRouterKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://nebras-tutor.ai", 
+            "X-Title": "Nebras Tutor",
+          },
+          body: JSON.stringify({
+            model: "bytedance-seed/seedream-4.5",
+            messages: [
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "text",
+                    text: `صورة تعليمية بسيطة وواضحة جداً لـ: ${prompt}.`
+                  }
+                ]
+              }
+            ],
+          })
+        });
+
+        if (!response.ok) throw new Error(`OpenRouter error: ${response.status}`);
+        
+        const data = await response.json();
+        console.log("OpenRouter Response:", data);
+
+        let generatedImageUrl = "";
+        let generatedVideoUrl = "";
+        
+        const choice = data.choices?.[0];
+        const message = choice?.message;
+        const content = message?.content || "";
+        
+        const urlMatch = content.match(/https?:\/\/[^\s)]+/);
+        if (urlMatch) {
+          const url = urlMatch[0];
+          if (url.match(/\.(mp4|webm|ogg)$/) || url.includes("video")) {
+            generatedVideoUrl = url;
+          } else {
+            generatedImageUrl = url;
+          }
+        }
+        
+        if (!generatedImageUrl && message?.images?.[0]) {
+          generatedImageUrl = message.images[0];
+        }
+
+        if (!generatedImageUrl && !generatedVideoUrl && choice?.image_url) {
+          generatedImageUrl = choice.image_url;
+        }
+
+        if (!generatedImageUrl && !generatedVideoUrl) {
+          throw new Error("No media found in OpenRouter response");
+        }
+
+        return { 
+          text: generatedVideoUrl ? "تدلل، هذا الفيديو يوضح اللي طلبته." : "تدلل، هاي الصورة توضح اللي طلبته.",
+          generatedImage: generatedImageUrl || undefined,
+          generatedVideo: generatedVideoUrl || undefined
+        };
+      } catch (err) {
+        console.error("OpenRouter Error, falling back to Gemini:", err);
+        const imgResponse = await ai.models.generateContent({
+          model: 'gemini-2.5-flash-image',
+          contents: [{ parts: [{ text: `صورة تعليمية بسيطة وواضحة جداً لـ: ${prompt}.` }] }]
+        });
+        
+        let base64Img = "";
+        const parts = imgResponse.candidates?.[0]?.content?.parts || [];
+        for (const part of parts) {
+          if (part.inlineData) {
+            base64Img = `data:image/png;base64,${part.inlineData.data}`;
+            break;
+          }
+        }
+        
+        if (!base64Img) throw new Error("Gemini fallback failed to generate image");
+
+        return { 
+          text: "تدلل، هاي الصورة توضح اللي طلبته (استخدمت نانو بنانا كبديل مؤقت).",
+          generatedImage: base64Img 
+        };
       }
-      
-      return { 
-        text: "تدلل، هاي الصورة توضح اللي طلبته.",
-        generatedImage: base64Img 
-      };
     }
 
     let modeInstruction = "";
@@ -78,12 +153,12 @@ export const getGeminiResponse = async (
     }
 
     const result = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview', // Fastest model available
+      model: 'gemini-3.1-flash-lite-preview',
       contents: [{ role: 'user', parts }],
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
-        temperature: 0.1, // Near-zero for speed and directness
-        thinkingConfig: { thinkingBudget: 0 } // No thinking delay
+        temperature: 0.1,
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW }
       }
     });
 
@@ -100,7 +175,7 @@ export const getSpeechResponse = async (text: string): Promise<string | undefine
       model: "gemini-2.5-flash-preview-tts",
       contents: [{ parts: [{ text: `بصوت عراقي حنون ومختصر: ${text}` }] }],
       config: {
-        responseModalities: ['AUDIO' as any],
+        responseModalities: [Modality.AUDIO],
         speechConfig: {
           voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } },
         },

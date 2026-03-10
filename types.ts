@@ -20,8 +20,10 @@ export interface UserSettings {
 
 export interface User {
   username: string;
+  email: string;
   points: number;
   joinedAt: string;
+  isPremium?: boolean;
 }
 
 export interface ChatMessage {
@@ -31,6 +33,7 @@ export interface ChatMessage {
   mode?: InteractionMode;
   imageUrl?: string;
   generatedImageUrl?: string;
+  generatedVideoUrl?: string;
 }
 
 export interface PDFData {

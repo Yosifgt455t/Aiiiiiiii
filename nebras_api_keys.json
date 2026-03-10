@@ -1,0 +1,9 @@
+{
+  "STRIPE_SECRET_KEY": "sk_test_...",
+  "STRIPE_WEBHOOK_SECRET": "whsec_...",
+  "APP_URL": "https://...",
+  "GEMINI_API_KEY": "...",
+  "VITE_SUPABASE_URL": "https://...",
+  "VITE_SUPABASE_ANON_KEY": "...",
+  "OPENROUTER_API_KEY": "..."
+}
